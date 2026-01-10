@@ -9,6 +9,8 @@ import HomeView from "@/components/home/HomeView";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import ToolCallBlock from "@/components/chat/ToolCallBlock";
 import ToolResultBlock from "@/components/chat/ToolResultBlock";
+import { Alert } from "@/components/ui/Alert";
+import Button from "@/components/ui/Button";
 import {
   Message,
   Conversation,
@@ -26,6 +28,7 @@ import {
   getConversations,
   getConversationWithMessages,
   deleteConversation as apiDeleteConversation,
+  editMessage,
   TimingData,
   ConfidenceData as ApiConfidenceData,
   ToolResultData,
@@ -47,6 +50,7 @@ export default function ChatPage() {
   const [docType, setDocType] = useState<'meeting' | 'email' | 'document' | 'note' | 'all'>('all');
   const [meetingCategory, setMeetingCategory] = useState<MeetingCategory>('all');
   const [pendingConversationId, setPendingConversationId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   // Tool state for agentic workflow (Phase 3)
   const [toolState, setToolState] = useState<{
     isActive: boolean;
@@ -76,6 +80,7 @@ export default function ChatPage() {
       console.log("[Chat] Loading conversations from backend...");
       try {
         setIsLoadingHistory(true);
+        setError(null);
         const response = await getConversations(1, 50);
 
         console.log("[Chat] Loaded conversations from API:", {
@@ -121,6 +126,16 @@ export default function ChatPage() {
     loadConversations();
   }, [signOut, router, isAuthLoading, isAuthenticated]);
 
+  const handleRetryLoad = () => {
+     // Re-trigger the effect by forcing a re-mount or just extracting load function?
+     // Easiest is to reload page or just call a refreshing function.
+     // To keep it simple and clean, let's extract load logic or just reload the window for now, 
+     // BUT better to just call the load function.
+     // Refactoring creation of loadConversations to be outside useEffect is cleaner but let's do a simple reload for now 
+     // OR better: we can make a state trigger.
+     window.location.reload(); 
+  };
+
   // Handle URL-based conversation selection (for navigation from other pages like Ghostwriter)
   useEffect(() => {
     const conversationParam = searchParams.get('conversation');
@@ -144,6 +159,11 @@ export default function ChatPage() {
             role: m.role as "user" | "assistant",
             content: m.content,
             timestamp: new Date(m.created_at),
+            // Map tool result data from metadata
+            toolResult: (m.metadata?.tool_result as any),
+            toolName: (m.metadata?.tool_name as any),
+            // Map paired history for version navigation
+            pairedHistory: (m.metadata?.paired_history as any),
             sources: (m.sources || []).map((s) => ({
               title: s.title || "Untitled",
               content: s.text_preview || "",
@@ -238,15 +258,27 @@ export default function ChatPage() {
                     content: msg.content,
                     role: msg.role as "user" | "assistant",
                     timestamp: new Date(msg.created_at),
-                    sources: msg.sources?.map((s) => ({
-                      title: s.title ?? undefined,
-                      date: s.date ?? undefined,
-                      transcript_id: s.transcript_id ?? undefined,
-                      speakers: s.speakers || [],
-                      text_preview: s.text_preview ?? undefined,
-                      relevance_score: s.relevance_score ?? undefined,
-                    })),
+                    // Map tool result data from metadata if present (critical for persistence)
+                    toolResult: (msg.metadata?.tool_result as any),
+                    toolName: (msg.metadata?.tool_name as any),
+                    attachments: (msg.metadata?.attachments as any),
+                    // Map paired history for version navigation
+                    pairedHistory: (msg.metadata?.paired_history as any),
+                    sources: msg.sources?.map((s) => {
+                      // Debug log for sources if needed
+                      // console.log('[Chat] Mapping source:', s);
+                      return {
+                        title: s.title ?? undefined,
+                        date: s.date ?? undefined,
+                        transcript_id: s.transcript_id ?? undefined,
+                        speakers: s.speakers || [],
+                        text_preview: s.text_preview ?? undefined,
+                        relevance_score: s.relevance_score ?? undefined,
+                      };
+                    }),
                   })),
+                  // Load active attachments from metadata
+                  activeAttachments: (fullConversation.metadata as any)?.active_attachments,
                 }
               : conv
           )
@@ -333,7 +365,11 @@ export default function ChatPage() {
     [currentConversationId]
   );
 
-  const handleSendMessage = async (content: string) => {
+  const handleSendMessage = async (
+    content: string,
+    documentIds?: string[],
+    attachments?: { id: string; name: string; type: 'pdf' | 'docx' | 'txt' | 'other'; size?: number }[]
+  ) => {
     const messageId = generateUUID();
 
     const newUserMessage: Message = {
@@ -341,6 +377,7 @@ export default function ChatPage() {
       content,
       role: "user",
       timestamp: new Date(),
+      attachments,
     };
 
     // Track if this is a new conversation - only 'new' counts as new
@@ -352,6 +389,9 @@ export default function ChatPage() {
       currentConversationId,
       isNewConversation,
       conversationsCount: conversations.length,
+      documentIdsCount: documentIds?.length,
+      attachmentsCount: attachments?.length,
+      attachments
     });
 
     // If it's a new conversation, create a temporary one in UI
@@ -407,7 +447,8 @@ export default function ChatPage() {
         true,
         activeConversationId,
         docType,
-        meetingCategory
+        meetingCategory,
+        documentIds
       );
       let fullContent = "";
       let backendConversationId: string | undefined;
@@ -415,6 +456,8 @@ export default function ChatPage() {
       let timingData: TimingData | undefined;
       let confidenceData: ApiConfidenceData | undefined;
       let disclaimer: string | undefined;
+      let finalToolResult: any | undefined;
+      let finalToolName: any | undefined;
 
       // Process streaming response
       for await (const chunk of parseStreamResponse(response)) {
@@ -425,6 +468,20 @@ export default function ChatPage() {
             "[Chat] Received backend conversation_id:",
             backendConversationId
           );
+          
+          // If backend returns user_message_id, update the temp message ID
+          if (chunk.user_message_id) {
+            console.log("[Chat] Received user_message_id:", chunk.user_message_id);
+            // Update the user message's ID to the real backend ID
+            setConversations(prev => prev.map(c => ({
+              ...c,
+              messages: c.messages.map(m => 
+                m.id === newUserMessage.id 
+                  ? { ...m, id: chunk.user_message_id as string }
+                  : m
+              )
+            })));
+          }
         } else if (chunk.type === "sources") {
           currentSources = chunk.content as Source[];
           setSources(currentSources);
@@ -452,9 +509,10 @@ export default function ChatPage() {
           setToolState({
             isActive: true,
             toolName: chunk.tool,
-            status: 'starting',
+            status: "starting",
             args: chunk.args,
           });
+          finalToolName = chunk.tool;
         } else if (chunk.type === "tool_progress") {
           // Tool is processing
           console.log("[Chat] Tool progress:", chunk.message);
@@ -466,11 +524,29 @@ export default function ChatPage() {
         } else if (chunk.type === "tool_result") {
           // Tool completed successfully
           console.log("[Chat] Tool result:", chunk.data);
-          setToolState(prev => ({
+          
+          // Check for sources in tool data and update state
+          // Note: Backend tool sources have format { title, date, score } which maps loosely to Source
+          if (chunk.data && chunk.data.sources && Array.isArray(chunk.data.sources) && chunk.data.sources.length > 0) {
+             console.log("[Chat] Received sources from tool:", chunk.data.sources.length);
+             const toolSources = chunk.data.sources.map((s: any) => ({
+                title: s.title,
+                date: s.date,
+                transcript_id: null,
+                speakers: [],
+                text_preview: "Source used for infographic generation",
+                relevance_score: s.score || null
+             }));
+             setSources(toolSources);
+             currentSources = toolSources;
+          }
+
+          setToolState((prev) => ({
             ...prev,
-            status: 'complete',
+            status: "complete",
             result: chunk.data,
           }));
+          finalToolResult = chunk.data;
         } else if (chunk.type === "tool_error") {
           // Tool failed
           console.log("[Chat] Tool error:", chunk.error);
@@ -502,7 +578,11 @@ export default function ChatPage() {
       const aiMessageId = `msg-${generateUUID()}`;
       const aiResponse: Message = {
         id: aiMessageId,
-        content: fullContent || "I received your message but had no response.",
+        // If we have tool result, we don't need the fallback message.
+        // Or we keep it as a summary if content is empty?
+        // If content is empty but toolResult exists, use "View result below" or similar, or empty string if UI handles it.
+        // For now, keep fallback only if BOTH are missing.
+        content: fullContent || (finalToolResult ? "" : "I received your message but had no response."),
         role: "assistant",
         timestamp: new Date(),
         sources: currentSources as MessageSource[], // Store sources with the message
@@ -516,6 +596,8 @@ export default function ChatPage() {
               prompt_build_ms: timingData.prompt_ms,
             }
           : undefined,
+        toolResult: finalToolResult,
+        toolName: finalToolName,
       };
 
       // Set this message as selected to show its sources
@@ -565,6 +647,148 @@ export default function ChatPage() {
     }
   };
 
+  const handleEditMessage = async (messageId: string, newContent: string) => {
+    console.log("[Chat] handleEditMessage:", { messageId, newContent });
+
+    // 1. Truncate messages in UI immediately
+    const convIndex = conversations.findIndex(c => c.id === currentConversationId);
+    if (convIndex === -1) return;
+    
+    const conv = conversations[convIndex];
+    const msgIndex = conv.messages.findIndex(m => m.id === messageId);
+    if (msgIndex === -1) return;
+
+    // Capture the assistant response that follows this message (if any)
+    const assistantResponse = conv.messages[msgIndex + 1];
+    const oldAssistantContent = assistantResponse?.role === 'assistant' ? assistantResponse.content : '';
+    
+    // Keep messages up to the edited one (truncate the rest)
+    const truncatedMessages = conv.messages.slice(0, msgIndex + 1);
+    const originalMessage = truncatedMessages[msgIndex];
+    
+    // Preserve paired history: add old input + old response to history before updating
+    const existingHistory = originalMessage.pairedHistory || [];
+    const updatedHistory = [...existingHistory, { 
+      userContent: originalMessage.content, 
+      assistantContent: oldAssistantContent 
+    }];
+    
+    // Update content and preserve history
+    truncatedMessages[msgIndex] = {
+      ...originalMessage,
+      content: newContent,
+      pairedHistory: updatedHistory,
+    };
+
+    setConversations(prev => prev.map(c => 
+      c.id === currentConversationId 
+        ? { ...c, messages: truncatedMessages } 
+        : c
+    ));
+    
+    // 2. Call API
+    setIsLoading(true);
+    setStreamingContent("");
+    setSources([]);
+    setSelectedMessageId(null);
+    setToolState({ isActive: false });
+
+    try {
+      const response = await editMessage(currentConversationId, messageId, newContent, true);
+      
+      let fullContent = "";
+      let currentSources: Source[] = [];
+      let timingData: TimingData | undefined;
+      let confidenceData: ApiConfidenceData | undefined;
+      let disclaimer: string | undefined;
+      let finalToolResult: any | undefined;
+      let finalToolName: any | undefined;
+
+      // Process streaming response
+      for await (const chunk of parseStreamResponse(response)) {
+         if (chunk.type === "token") {
+            fullContent += chunk.content as string;
+            setStreamingContent(fullContent);
+         } else if (chunk.type === "sources") {
+            currentSources = chunk.content as Source[];
+            setSources(currentSources);
+         } else if (chunk.type === "timing") {
+            timingData = chunk.content as TimingData;
+         } else if (chunk.type === "confidence") {
+            confidenceData = chunk.content as ApiConfidenceData;
+            disclaimer = chunk.disclaimer;
+         } else if (chunk.type === "tool_call") {
+             setToolState({
+                isActive: true,
+                toolName: chunk.tool,
+                status: "starting",
+                args: chunk.args,
+             });
+             finalToolName = chunk.tool;
+         } else if (chunk.type === "tool_progress") {
+             setToolState(prev => ({ ...prev, status: 'processing', message: chunk.message }));
+         } else if (chunk.type === "tool_result") {
+             // Handle tool sources if present
+             if (chunk.data && chunk.data.sources && Array.isArray(chunk.data.sources) && chunk.data.sources.length > 0) {
+                 const toolSources = chunk.data.sources.map((s: any) => ({
+                    title: s.title,
+                    date: s.date,
+                    transcript_id: null,
+                    speakers: [],
+                    text_preview: "Source used for creation",
+                    relevance_score: s.score || null
+                 }));
+                 setSources(toolSources);
+                 currentSources = toolSources;
+             }
+             setToolState(prev => ({ ...prev, status: "complete", result: chunk.data }));
+             finalToolResult = chunk.data;
+         } else if (chunk.type === "tool_error") {
+             setToolState(prev => ({ ...prev, status: 'error', error: chunk.error }));
+         }
+      }
+
+      // 3. Add Assistant Response
+      const aiMessageId = `msg-${generateUUID()}`;
+      const aiResponse: Message = {
+        id: aiMessageId,
+        content: fullContent || (finalToolResult ? "" : "I received your message but had no response."),
+        role: "assistant",
+        timestamp: new Date(),
+        sources: currentSources as MessageSource[],
+        confidence: confidenceData as ConfidenceData | undefined,
+        disclaimer: disclaimer,
+        timings: timingData ? {
+            retrieval_ms: timingData.retrieval_ms,
+            generation_ms: timingData.generation_ms,
+            total_ms: timingData.total_ms,
+            prompt_build_ms: timingData.prompt_ms,
+        } : undefined,
+        toolResult: finalToolResult,
+        toolName: finalToolName,
+      };
+
+      setSelectedMessageId(aiMessageId);
+
+      setConversations(prev => prev.map(c => 
+        c.id === currentConversationId 
+          ? { ...c, messages: [...c.messages, aiResponse], updatedAt: new Date() } 
+          : c
+      ));
+
+    } catch (error) {
+      console.error("Edit error:", error);
+      if (error instanceof ApiError && error.shouldReauth) {
+        signOut();
+        router.push("/");
+      }
+    } finally {
+      setIsLoading(false);
+      setStreamingContent("");
+      setToolState({ isActive: false });
+    }
+  };
+
   const handleNewConversation = () => {
     setCurrentConversationId("new");
   };
@@ -602,6 +826,28 @@ export default function ChatPage() {
           Loading conversations...
         </div>
       </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <ProtectedRoute>
+        <div className="flex items-center justify-center h-screen bg-[var(--background)] p-4">
+          <div className="max-w-md w-full space-y-4">
+             <Alert 
+               variant="error" 
+               title="Connection Error"
+               action={
+                 <Button onClick={handleRetryLoad} variant="secondary" size="sm">
+                   Retry Connection
+                 </Button>
+               }
+             >
+               {error}
+             </Alert>
+          </div>
+        </div>
+      </ProtectedRoute>
     );
   }
 
@@ -673,6 +919,7 @@ export default function ChatPage() {
                     message={message}
                     isSelected={selectedMessageId === message.id}
                     onSelectMessage={handleSelectMessage}
+                    onEdit={handleEditMessage}
                   />
                 ))}
                 {(isLoading || streamingContent) && !toolState.isActive && (
@@ -724,6 +971,7 @@ export default function ChatPage() {
                 onDocTypeChange={setDocType}
                 meetingCategory={meetingCategory}
                 onMeetingCategoryChange={setMeetingCategory}
+                initialAttachments={currentConversation.activeAttachments}
               />
             </div>
           )}

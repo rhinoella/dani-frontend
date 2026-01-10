@@ -2,7 +2,7 @@
 
 import { useState, useEffect, FormEvent, KeyboardEvent, useRef } from 'react';
 import { SendIcon } from '@/components/ui/Icons';
-import { uploadDocument, DocumentUploadResponse, ApiError } from '@/services/api';
+import { uploadDocument, DocumentUploadResponse, ApiError, waitForDocumentReady } from '@/services/api';
 import MeetingCategoryFilter from '@/components/ui/MeetingCategoryFilter';
 import FilePreviewModal from './FilePreviewModal';
 import { MeetingCategory } from '@/types';
@@ -11,19 +11,24 @@ interface UploadingFile {
   id: string;
   file: File;
   progress: number;
-  status: 'uploading' | 'completed' | 'failed';
+  status: 'uploading' | 'processing' | 'completed' | 'failed';
   error?: string;
   response?: DocumentUploadResponse;
 }
 
 interface ChatInputProps {
-  onSendMessage: (message: string) => void;
+  onSendMessage: (
+    message: string, 
+    documentIds?: string[],
+    attachments?: { id: string; name: string; type: 'pdf' | 'docx' | 'txt' | 'other'; size?: number }[]
+  ) => void;
   disabled?: boolean;
   placeholder?: string;
   docType?: 'meeting' | 'email' | 'document' | 'note' | 'all';
   onDocTypeChange?: (docType: 'meeting' | 'email' | 'document' | 'note' | 'all') => void;
   meetingCategory?: MeetingCategory;
   onMeetingCategoryChange?: (category: MeetingCategory) => void;
+  initialAttachments?: { id: string; name: string; type: 'pdf' | 'docx' | 'txt' | 'other'; size?: number }[];
 }
 
 // Get file type from extension
@@ -55,11 +60,39 @@ export default function ChatInput({
   onDocTypeChange,
   meetingCategory = 'all',
   onMeetingCategoryChange,
+  initialAttachments = [],
 }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
+  
+  // Initialize from initialAttachments if provided
+  const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>(() => 
+    initialAttachments.map(att => ({
+      id: att.id,
+      file: { name: att.name, size: att.size || 0 } as File, // Mock File object for display
+      progress: 100,
+      status: 'completed',
+      response: { id: att.id, filename: att.name, status: 'completed' } as DocumentUploadResponse
+    }))
+  );
+
+  // Update when initialAttachments change (e.g. switching conversations)
+  useEffect(() => {
+    if (initialAttachments && initialAttachments.length > 0) {
+       // Only reset if different? Or just always sync? 
+       // Simplest is to sync if list is different length or IDs
+       setUploadingFiles(initialAttachments.map(att => ({
+        id: att.id,
+        file: { name: att.name, size: att.size || 0 } as File,
+        progress: 100,
+        status: 'completed',
+        response: { id: att.id, filename: att.name, status: 'completed' } as DocumentUploadResponse
+      })));
+    } else {
+      setUploadingFiles([]);
+    }
+  }, [JSON.stringify(initialAttachments)]); // Deep compare simple objects
   const [previewFile, setPreviewFile] = useState<{
     documentId: string;
     filename: string;
@@ -84,11 +117,32 @@ export default function ChatInput({
     };
   }, [isDropdownOpen]);
 
+  // Check if any file is still uploading or processing
+  const isUploading = uploadingFiles.some(f => f.status === 'uploading' || f.status === 'processing');
+
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (message.trim() && !disabled) {
-      onSendMessage(message.trim());
+    if (message.trim() && !disabled && !isUploading) {
+      // Collect IDs and metadata of successfully uploaded files
+      const uploadedFiles = uploadingFiles
+        .filter(f => f.status === 'completed' && f.response?.id);
+      
+      const documentIds = uploadedFiles.map(f => f.response!.id);
+      
+      const attachments = uploadedFiles.map(f => ({
+        id: f.response!.id,
+        name: f.file.name,
+        type: getFileType(f.file.name) as 'pdf' | 'docx' | 'txt' | 'other', 
+        size: f.file.size
+      }));
+        
+      onSendMessage(
+        message.trim(), 
+        documentIds.length > 0 ? documentIds : undefined,
+        attachments.length > 0 ? attachments : undefined
+      );
       setMessage('');
+      setUploadingFiles([]); // Clear uploads after sending
     }
   };
 
@@ -132,10 +186,29 @@ export default function ChatInput({
           }
         );
 
-        // Mark as completed
+        // Mark as processing (waiting for backend to finish)
         setUploadingFiles(prev => prev.map(f => 
-          f.id === fileId ? { ...f, status: 'completed', progress: 100, response } : f
+          f.id === fileId ? { ...f, status: 'processing', progress: 100, response } : f
         ));
+
+        // Wait for document to be fully processed
+        const finalDoc = await waitForDocumentReady(response.id);
+        
+        if (finalDoc.status === 'completed') {
+          // Mark as completed
+          setUploadingFiles(prev => prev.map(f => 
+            f.id === fileId ? { ...f, status: 'completed' } : f
+          ));
+        } else {
+          // Mark as failed
+          setUploadingFiles(prev => prev.map(f => 
+            f.id === fileId ? { 
+              ...f, 
+              status: 'failed', 
+              error: finalDoc.error_message || 'Processing failed' 
+            } : f
+          ));
+        }
 
       } catch (error) {
         console.error('File upload failed:', error);
@@ -170,8 +243,6 @@ export default function ChatInput({
       });
     }
   };
-
-  const isUploading = uploadingFiles.some(f => f.status === 'uploading');
 
   return (
     <>
@@ -225,18 +296,30 @@ export default function ChatInput({
                     <p className="text-xs text-[var(--foreground-muted)] uppercase mt-0.5">
                       {upload.status === 'uploading' 
                         ? `Uploading ${upload.progress}%` 
+                        : upload.status === 'processing'
+                        ? 'Processing...'
                         : upload.status === 'failed'
                         ? upload.error
                         : getFileType(upload.file.name).toUpperCase()
                       }
                     </p>
                     
-                    {/* Progress Bar */}
+                    {/* Progress Bar - shows for uploading */}
                     {upload.status === 'uploading' && (
                       <div className="mt-1.5 w-32 h-1 rounded-full bg-[var(--border)] overflow-hidden">
                         <div 
                           className="h-full rounded-full bg-[var(--primary)] transition-all duration-300"
                           style={{ width: `${upload.progress}%` }}
+                        />
+                      </div>
+                    )}
+                    
+                    {/* Indeterminate Progress Bar - shows for processing */}
+                    {upload.status === 'processing' && (
+                      <div className="mt-1.5 w-32 h-1 rounded-full bg-[var(--border)] overflow-hidden">
+                        <div 
+                          className="h-full rounded-full bg-[var(--primary)] animate-pulse"
+                          style={{ width: '100%' }}
                         />
                       </div>
                     )}
@@ -436,11 +519,11 @@ export default function ChatInput({
                 {/* Send Button */}
                 <button 
                   type="submit"
-                  disabled={!message.trim() || disabled}
+                  disabled={!message.trim() || disabled || isUploading}
                   className={`
                     p-2.5 rounded-xl
                     transition-all duration-300
-                    ${message.trim() && !disabled
+                    ${message.trim() && !disabled && !isUploading
                       ? 'bg-gradient-to-r from-[var(--primary)] to-purple-500 text-white shadow-lg shadow-[var(--primary-glow)] hover:scale-105 hover:shadow-xl'
                       : 'bg-[var(--surface)] text-[var(--foreground-muted)] cursor-not-allowed'
                     }

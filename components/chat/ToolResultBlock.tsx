@@ -53,105 +53,116 @@ export function ToolResultBlock({ toolName, data }: ToolResultBlockProps) {
     const { headline, subtitle, stats, key_points } = data.structured_data;
 
     return (
-      <div className="my-3 rounded-lg border border-purple-200 bg-gradient-to-br from-purple-50 to-pink-50 dark:border-purple-900 dark:from-purple-950/30 dark:to-pink-950/30 overflow-hidden">
+      <div className="my-3 rounded-lg border border-[var(--glass-border)] bg-[var(--surface)] overflow-hidden transition-all duration-200">
         {/* Header */}
         <div 
-          className="p-4 cursor-pointer flex items-center justify-between hover:bg-purple-100/50 dark:hover:bg-purple-900/20 transition-colors"
+          className="p-4 cursor-pointer flex items-center justify-between hover:bg-[var(--surface-hover)] transition-colors border-b border-transparent hover:border-[var(--glass-border)]"
           onClick={() => setIsExpanded(!isExpanded)}
         >
           <div>
-            <h3 className="text-lg font-bold text-purple-900 dark:text-purple-100">
+            <h3 className="text-lg font-bold text-[var(--foreground)]">
               {headline}
             </h3>
             {subtitle && (
-              <p className="text-sm text-purple-700 dark:text-purple-300 mt-1">
+              <p className="text-sm text-[var(--foreground-muted)] mt-1">
                 {subtitle}
               </p>
             )}
           </div>
           {isExpanded ? (
-            <ChevronUpIcon className="w-5 h-5 text-purple-500" />
+            <ChevronUpIcon className="w-5 h-5 text-[var(--foreground-muted)]" />
           ) : (
-            <ChevronDownIcon className="w-5 h-5 text-purple-500" />
+            <ChevronDownIcon className="w-5 h-5 text-[var(--foreground-muted)]" />
           )}
         </div>
 
         {/* Expandable content */}
         {isExpanded && (
-          <div className="px-4 pb-4 space-y-4">
-            {/* Stats Grid */}
-            {stats && stats.length > 0 && (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {stats.map((stat, idx) => (
-                  <div
-                    key={idx}
-                    className="p-3 rounded-lg bg-white/60 dark:bg-gray-900/40 border border-purple-100 dark:border-purple-800"
-                  >
-                    <div className="text-2xl mb-1">{stat.icon || "📊"}</div>
-                    <div className="text-xl font-bold text-gray-900 dark:text-white">
-                      {stat.value}
-                    </div>
-                    <div className="text-xs text-gray-600 dark:text-gray-400">
-                      {stat.label}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Key Points */}
-            {key_points && key_points.length > 0 && (
-              <div className="space-y-2">
-                <h4 className="text-sm font-semibold text-purple-800 dark:text-purple-200">
-                  Key Insights
-                </h4>
-                <ul className="space-y-1">
-                  {key_points.map((point, idx) => (
-                    <li
-                      key={idx}
-                      className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300"
-                    >
-                      <span className="text-purple-500 mt-1">•</span>
-                      {point}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {/* Image (if available) */}
+          <div className="pb-4">
+             {/* Image (Moved to top, full width) */}
             {data.image && (
-              <div className="mt-4">
+              <div className="relative group border-b border-[var(--glass-border)] mb-4 bg-black/5">
                 <img
                   src={data.image.startsWith("data:") ? data.image : `data:image/png;base64,${data.image}`}
                   alt="Generated Infographic"
-                  className="w-full max-w-2xl rounded-lg shadow-lg mx-auto"
+                  className="w-full h-auto object-contain max-h-[500px]"
                 />
-                <div className="flex justify-center gap-2 mt-2">
-                  <button
-                    onClick={() => {
-                      const link = document.createElement("a");
-                      link.href = data.image!.startsWith("data:") 
-                        ? data.image! 
-                        : `data:image/png;base64,${data.image}`;
-                      link.download = "infographic.png";
-                      link.click();
-                    }}
-                    className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-full bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800/50 transition-colors"
-                  >
-                    <DownloadIcon className="w-3 h-3" />
-                    Download
-                  </button>
-                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const link = document.createElement("a");
+                    link.href = data.image!.startsWith("data:") 
+                      ? data.image! 
+                      : `data:image/png;base64,${data.image}`;
+                    link.download = "infographic.png";
+                    link.click();
+                  }}
+                  className="absolute top-2 right-2 p-2 rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70 backdrop-blur-sm"
+                  title="Download Image"
+                >
+                  <DownloadIcon className="w-4 h-4" />
+                </button>
               </div>
             )}
 
-            {/* Timing */}
-            {data.timing_ms && (
-              <p className="text-xs text-gray-500 dark:text-gray-500">
-                Generated in {(data.timing_ms / 1000).toFixed(1)}s
-              </p>
-            )}
+            <div className="px-4 space-y-4">
+              {/* Stats Grid */}
+              {stats && stats.length > 0 && (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  {stats.map((stat, idx) => (
+                    <div
+                      key={idx}
+                      className="p-3 rounded-lg bg-[var(--surface-hover)] border border-[var(--glass-border)]"
+                    >
+                      <div className="text-2xl mb-1">{stat.icon || "📊"}</div>
+                      <div className="text-xl font-bold text-[var(--foreground)]">
+                        {stat.value}
+                      </div>
+                      <div className="text-xs text-[var(--foreground-muted)]">
+                        {stat.label}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Key Points */}
+              {key_points && key_points.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-sm font-semibold text-[var(--foreground)]">
+                    Key Insights
+                  </h4>
+                  <ul className="space-y-2">
+                    {key_points.map((point, idx) => (
+                      <li
+                        key={idx}
+                        className="flex items-start gap-2 text-sm text-[var(--foreground-secondary)]"
+                      >
+                        <span className="text-[var(--primary)] mt-1.5 w-1.5 h-1.5 rounded-full bg-[var(--primary)] flex-shrink-0" />
+                        <span className="leading-relaxed">
+                          {point.split(/(\*\*.*?\*\*)/).map((part, i) => 
+                            part.startsWith('**') && part.endsWith('**') ? (
+                              <strong key={i} className="font-semibold text-[var(--foreground)]">
+                                {part.slice(2, -2)}
+                              </strong>
+                            ) : (
+                              <span key={i}>{part}</span>
+                            )
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Timing */}
+              {data.timing_ms && (
+                <p className="text-xs text-[var(--foreground-muted)] pt-2 border-t border-[var(--glass-border)]">
+                  Generated in {(data.timing_ms / 1000).toFixed(1)}s
+                </p>
+              )}
+            </div>
           </div>
         )}
       </div>

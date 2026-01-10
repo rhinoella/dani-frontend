@@ -10,7 +10,7 @@ import {
   SparkleIcon
 } from '@/components/ui/Icons';
 import ThemeToggle from '@/components/ui/ThemeToggle';
-import { uploadDocument, DocumentUploadResponse, ApiError, getFrequentQuestions } from '@/services/api';
+import { uploadDocument, DocumentUploadResponse, ApiError, getFrequentQuestions, waitForDocumentReady } from '@/services/api';
 import FilePreviewModal from '@/components/chat/FilePreviewModal';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -18,13 +18,13 @@ interface UploadingFile {
   id: string;
   file: File;
   progress: number;
-  status: 'uploading' | 'completed' | 'failed';
+  status: 'uploading' | 'processing' | 'completed' | 'failed';
   error?: string;
   response?: DocumentUploadResponse;
 }
 
 interface HomeViewProps {
-  onSendMessage: (message: string) => void;
+  onSendMessage: (message: string, documentIds?: string[]) => void;
 }
 
 // Get file type from extension
@@ -101,17 +101,32 @@ export default function HomeView({ onSendMessage }: HomeViewProps) {
     };
   }, [isDropdownOpen]);
 
+  // Check if any file is still uploading or processing
+  const isUploading = uploadingFiles.some(f => f.status === 'uploading' || f.status === 'processing');
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && inputValue.trim()) {
-      onSendMessage(inputValue.trim());
+    if (e.key === 'Enter' && inputValue.trim() && !isUploading) {
+      // Collect IDs of successfully uploaded files
+      const documentIds = uploadingFiles
+        .filter(f => f.status === 'completed' && f.response?.id)
+        .map(f => f.response!.id);
+      
+      onSendMessage(inputValue.trim(), documentIds.length > 0 ? documentIds : undefined);
       setInputValue('');
+      setUploadingFiles([]); // Clear uploads after sending
     }
   };
 
   const handleSubmit = () => {
-    if (inputValue.trim()) {
-      onSendMessage(inputValue.trim());
+    if (inputValue.trim() && !isUploading) {
+      // Collect IDs of successfully uploaded files
+      const documentIds = uploadingFiles
+        .filter(f => f.status === 'completed' && f.response?.id)
+        .map(f => f.response!.id);
+
+      onSendMessage(inputValue.trim(), documentIds.length > 0 ? documentIds : undefined);
       setInputValue('');
+      setUploadingFiles([]); // Clear uploads after sending
     }
   };
 
@@ -145,9 +160,29 @@ export default function HomeView({ onSendMessage }: HomeViewProps) {
           }
         );
 
+        // Mark as processing (waiting for backend to finish)
         setUploadingFiles(prev => prev.map(f => 
-          f.id === fileId ? { ...f, status: 'completed', progress: 100, response } : f
+          f.id === fileId ? { ...f, status: 'processing', progress: 100, response } : f
         ));
+
+        // Wait for document to be fully processed
+        const finalDoc = await waitForDocumentReady(response.id);
+        
+        if (finalDoc.status === 'completed') {
+          // Mark as completed
+          setUploadingFiles(prev => prev.map(f => 
+            f.id === fileId ? { ...f, status: 'completed' } : f
+          ));
+        } else {
+          // Mark as failed
+          setUploadingFiles(prev => prev.map(f => 
+            f.id === fileId ? { 
+              ...f, 
+              status: 'failed', 
+              error: finalDoc.error_message || 'Processing failed' 
+            } : f
+          ));
+        }
 
       } catch (error) {
         console.error('File upload failed:', error);
@@ -177,8 +212,6 @@ export default function HomeView({ onSendMessage }: HomeViewProps) {
       });
     }
   };
-
-  const isUploading = uploadingFiles.some(f => f.status === 'uploading');
 
   const actionButtons = [
     { icon: <DeepSearchIcon className="w-4 h-4" />, label: 'DeepSearch', id: 'deepsearch' },
@@ -270,18 +303,30 @@ export default function HomeView({ onSendMessage }: HomeViewProps) {
                   <p className="text-xs text-[var(--foreground-muted)] uppercase mt-0.5">
                     {upload.status === 'uploading' 
                       ? `Uploading ${upload.progress}%` 
+                      : upload.status === 'processing'
+                      ? 'Processing...'
                       : upload.status === 'failed'
                       ? upload.error
                       : getFileType(upload.file.name).toUpperCase()
                     }
                   </p>
                   
-                  {/* Progress Bar */}
+                  {/* Progress Bar - shows for uploading */}
                   {upload.status === 'uploading' && (
                     <div className="mt-1.5 w-32 h-1 rounded-full bg-[var(--border)] overflow-hidden">
                       <div 
                         className="h-full rounded-full bg-[var(--primary)] transition-all duration-300"
                         style={{ width: `${upload.progress}%` }}
+                      />
+                    </div>
+                  )}
+                  
+                  {/* Indeterminate Progress Bar - shows for processing */}
+                  {upload.status === 'processing' && (
+                    <div className="mt-1.5 w-32 h-1 rounded-full bg-[var(--border)] overflow-hidden">
+                      <div 
+                        className="h-full rounded-full bg-[var(--primary)] animate-pulse"
+                        style={{ width: '100%' }}
                       />
                     </div>
                   )}
@@ -412,10 +457,10 @@ export default function HomeView({ onSendMessage }: HomeViewProps) {
             <div className="flex items-center gap-1">
               <button 
                 onClick={handleSubmit}
-                disabled={!inputValue.trim()}
+                disabled={!inputValue.trim() || isUploading}
                 className={`
                   p-3 rounded-xl transition-all duration-300
-                  ${inputValue.trim()
+                  ${inputValue.trim() && !isUploading
                     ? 'bg-gradient-to-r from-[var(--primary)] to-purple-500 text-white shadow-lg shadow-[var(--primary-glow)] hover:scale-105 hover:shadow-xl'
                     : 'bg-[var(--surface)] text-[var(--foreground-muted)]'
                   }

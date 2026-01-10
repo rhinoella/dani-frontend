@@ -21,6 +21,28 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   return {};
 }
 
+/**
+ * Wrapper for fetch to handle network errors gracefully
+ */
+async function safeFetch(
+  input: RequestInfo | URL,
+  init?: RequestInit
+): Promise<Response> {
+  try {
+    const response = await fetch(input, init);
+    return response;
+  } catch (error) {
+    if (error instanceof TypeError && error.message === "Failed to fetch") {
+      throw new ApiError(
+        "Network error: Unable to reach the server. Please check your connection or try again later.",
+        0,
+        false
+      );
+    }
+    throw error;
+  }
+}
+
 export type MeetingCategory =
   | "board"
   | "1on1"
@@ -39,6 +61,7 @@ export interface ChatRequest {
   include_history?: boolean;
   doc_type?: "meeting" | "email" | "document" | "note" | "all";
   meeting_category?: MeetingCategory; // Filter by meeting category
+  document_ids?: string[]; // Specific documents to include in context
 }
 
 export interface Source {
@@ -67,9 +90,10 @@ export interface ChatResponse {
 }
 
 export interface StreamChunk {
-  type: "sources" | "token" | "answer" | "meta" | "timing" | "confidence" | "tool_call" | "tool_progress" | "tool_result" | "tool_error";
-  content?: Source[] | string | TimingData | ConfidenceData;
+  type: "sources" | "token" | "answer" | "meta" | "timing" | "confidence" | "tool_call" | "tool_progress" | "tool_result" | "tool_error" | "rewrite";
+  content?: Source[] | string | TimingData | ConfidenceData | RewriteData;
   conversation_id?: string;
+  user_message_id?: string;  // Backend's real message ID for the user message
   disclaimer?: string;
   // Tool event fields (Phase 3)
   tool?: string;
@@ -79,6 +103,11 @@ export interface StreamChunk {
   message?: string;
   data?: ToolResultData;
   error?: string;
+}
+
+export interface RewriteData {
+  original: string;
+  rewritten: string;
 }
 
 // Tool result data structure
@@ -160,7 +189,8 @@ export async function sendChatMessage(
   stream = true,
   conversationId?: string,
   docType?: "meeting" | "email" | "document" | "note" | "all",
-  meetingCategory?: MeetingCategory
+  meetingCategory?: MeetingCategory,
+  documentIds?: string[]
 ): Promise<Response> {
   console.log("[API] sendChatMessage:", {
     query: query.slice(0, 50),
@@ -168,6 +198,7 @@ export async function sendChatMessage(
     conversationId,
     docType,
     meetingCategory,
+    documentIds,
   });
   const authHeaders = await getAuthHeaders();
   const requestBody = {
@@ -180,6 +211,7 @@ export async function sendChatMessage(
       meetingCategory && meetingCategory !== "all"
         ? meetingCategory
         : undefined,
+    document_ids: documentIds && documentIds.length > 0 ? documentIds : undefined,
   } as ChatRequest;
   // console.log("[API] Request body:", requestBody);
 
@@ -193,6 +225,39 @@ export async function sendChatMessage(
   });
 
   console.log("[API] Response status:", response.status);
+  await handleResponse(response);
+  return response;
+}
+
+
+/**
+ * Edit a specific message and regenerate response
+ */
+export async function editMessage(
+  conversationId: string,
+  messageId: string,
+  newContent: string,
+  stream = true
+): Promise<Response> {
+  console.log("[API] editMessage:", { conversationId, messageId, newContent, stream });
+  const authHeaders = await getAuthHeaders();
+  
+  const requestBody = {
+    query: newContent,
+    stream,
+    conversation_id: conversationId,
+    include_history: true
+  } as ChatRequest;
+
+  const response = await fetch(`${API_URL}/chat/${conversationId}/messages/${messageId}/edit`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders,
+    },
+    body: JSON.stringify(requestBody),
+  });
+
   await handleResponse(response);
   return response;
 }
@@ -283,6 +348,75 @@ export async function updateUserProfile(data: {
   return response.json();
 }
 
+
+/**
+ * Admin: List all users
+ */
+export async function adminListUsers(): Promise<Array<{
+  id: string;
+  name: string;
+  email: string;
+  picture_url?: string;
+  created_at: string;
+}>> {
+  const authHeaders = await getAuthHeaders();
+  const response = await fetch(`${API_URL}/users/`, {
+    headers: authHeaders,
+  });
+
+  await handleResponse(response);
+  return response.json();
+}
+
+/**
+ * Admin: Create user
+ */
+export async function adminCreateUser(data: { name: string; email: string }) {
+  const authHeaders = await getAuthHeaders();
+  const response = await fetch(`${API_URL}/users/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders,
+    },
+    body: JSON.stringify(data),
+  });
+
+  await handleResponse(response);
+  return response.json();
+}
+
+/**
+ * Admin: Update user
+ */
+export async function adminUpdateUser(id: string, data: { name?: string; picture_url?: string }) {
+  const authHeaders = await getAuthHeaders();
+  const response = await fetch(`${API_URL}/users/${id}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders,
+    },
+    body: JSON.stringify(data),
+  });
+
+  await handleResponse(response);
+  return response.json();
+}
+
+/**
+ * Admin: Delete user
+ */
+export async function adminDeleteUser(id: string) {
+  const authHeaders = await getAuthHeaders();
+  const response = await fetch(`${API_URL}/users/${id}`, {
+    method: "DELETE",
+    headers: authHeaders,
+  });
+
+  await handleResponse(response);
+}
+
 /**
  * Check API health
  */
@@ -354,7 +488,7 @@ export async function getConversations(
 ): Promise<ConversationListResponse> {
   console.log("[API] getConversations:", { page, pageSize });
   const authHeaders = await getAuthHeaders();
-  const response = await fetch(
+  const response = await safeFetch(
     `${API_URL}/conversations?page=${page}&page_size=${pageSize}`,
     {
       headers: authHeaders,
@@ -564,6 +698,68 @@ export async function uploadDocument(
 
     xhr.send(formData);
   });
+}
+
+/**
+ * Get document status by ID
+ */
+export async function getDocumentStatus(
+  documentId: string
+): Promise<DocumentResponse> {
+  const authHeaders = await getAuthHeaders();
+  const response = await safeFetch(`${API_URL}/documents/${documentId}`, {
+    method: "GET",
+    headers: {
+      ...authHeaders,
+    },
+  });
+  await handleResponse(response);
+  return response.json();
+}
+
+/**
+ * Poll document status until it's completed or failed
+ * Returns the final status
+ */
+export async function waitForDocumentReady(
+  documentId: string,
+  onStatusChange?: (status: DocumentStatus) => void,
+  pollInterval = 4000, // 4 seconds to stay under 20/min rate limit
+  maxWaitMs = 180000 // 3 minutes max
+): Promise<DocumentResponse> {
+  const startTime = Date.now();
+  let currentInterval = pollInterval;
+  
+  while (Date.now() - startTime < maxWaitMs) {
+    try {
+      const doc = await getDocumentStatus(documentId);
+      
+      if (onStatusChange) {
+        onStatusChange(doc.status);
+      }
+      
+      if (doc.status === 'completed' || doc.status === 'failed') {
+        return doc;
+      }
+      
+      // Reset interval on successful request
+      currentInterval = pollInterval;
+      
+    } catch (error) {
+      // Handle rate limit by backing off
+      if (error instanceof ApiError && error.status === 429) {
+        console.warn('[API] Rate limited, backing off...');
+        currentInterval = Math.min(currentInterval * 2, 30000); // Max 30s backoff
+      } else {
+        throw error;
+      }
+    }
+    
+    // Wait before next poll
+    await new Promise(resolve => setTimeout(resolve, currentInterval));
+  }
+  
+  throw new ApiError("Document processing timeout", 408);
 }
 
 /**

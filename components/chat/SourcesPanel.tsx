@@ -274,7 +274,7 @@ const SourcesList = memo(function SourcesList({ sources, onSelectSource }: { sou
     <>
       {sources.map((source, index) => (
         <div
-          key={source.transcript_id || index}
+          key={`${source.transcript_id || 'source'}-${index}`}
           className="
             p-3 rounded-xl
             bg-[var(--surface)] border border-[var(--border)]

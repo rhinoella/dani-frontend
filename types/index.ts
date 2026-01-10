@@ -64,6 +64,19 @@ export interface Message {
   confidence?: ConfidenceData;  // Confidence scoring
   disclaimer?: string;  // Low confidence warning
   timings?: MessageTimings;  // Performance timing
+  toolResult?: ToolResultEvent['data']; // Tool execution result
+  toolName?: ToolName; // Name of the tool used
+  attachments?: {
+    id: string;
+    name: string;
+    type: 'pdf' | 'docx' | 'txt' | 'other';
+    size?: number;
+  }[];
+  // Edit history: stores previous input/response pairs for version navigation
+  pairedHistory?: {
+    userContent: string;
+    assistantContent: string;
+  }[];
 }
 
 export interface Conversation {
@@ -72,6 +85,12 @@ export interface Conversation {
   messages: Message[];
   createdAt: Date;
   updatedAt: Date;
+  activeAttachments?: {
+    id: string;
+    name: string;
+    type: 'pdf' | 'docx' | 'txt' | 'other';
+    size?: number;
+  }[];
 }
 
 export interface ChatInputProps {

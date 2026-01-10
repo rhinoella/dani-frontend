@@ -5,6 +5,7 @@ import Avatar from '@/components/ui/Avatar';
 import { CloseIcon, ChevronDownIcon } from '@/components/ui/Icons';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeProvider';
+import UserManagementModal from './UserManagementModal';
 
 // Icons for the menu
 const SettingsIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
@@ -39,6 +40,12 @@ const CameraIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
   </svg>
 );
 
+const UsersIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+  </svg>
+);
+
 export interface User {
   name: string;
   email?: string;
@@ -62,6 +69,7 @@ export default function UserMenu({
 }: UserMenuProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
+  const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editForm, setEditForm] = useState({
     name: user.name,
@@ -107,6 +115,14 @@ export default function UserMenu({
   };
 
   const menuItems = [
+    {
+      icon: <UsersIcon className="w-5 h-5" />,
+      label: 'Manage users',
+      onClick: () => {
+        setIsMenuOpen(false);
+        setIsUserManagementOpen(true);
+      },
+    },
     {
       icon: <EditIcon className="w-5 h-5" />,
       label: 'Edit profile',
@@ -164,9 +180,6 @@ export default function UserMenu({
             <div className="flex-1 min-w-0 text-left">
               <p className="text-sm font-medium text-[var(--foreground)] truncate">
                 {user.name}
-              </p>
-              <p className="text-xs text-[var(--foreground-muted)]">
-                Free Plan
               </p>
             </div>
           </button>
@@ -444,6 +457,10 @@ export default function UserMenu({
             </div>
           </div>
         </div>
+      )}
+      {/* User Management Modal */}
+      {isUserManagementOpen && (
+        <UserManagementModal onClose={() => setIsUserManagementOpen(false)} />
       )}
     </>
   );
