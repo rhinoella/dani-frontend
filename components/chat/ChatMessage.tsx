@@ -279,11 +279,6 @@ export default function ChatMessage({ message, isLoading, isSelected, onRegenera
               <span className={`text-xs ${isUser ? 'text-white/60' : 'text-[var(--foreground-muted)]'}`}>
                 {formatTime(message.timestamp)}
               </span>
-              {/* Confidence badge */}
-              {hasConfidence && message.confidence && (
-                <ConfidenceBadge confidence={message.confidence} />
-              )}
-              
             </div>
 
             <div className="prose prose-sm max-w-none w-full">
@@ -358,16 +353,6 @@ export default function ChatMessage({ message, isLoading, isSelected, onRegenera
                 )
               )}
               
-              {/* Low confidence disclaimer */}
-              {hasDisclaimer && message.disclaimer && (
-                <div className="mt-3 flex items-start gap-2 p-2.5 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
-                  <WarningIcon className="w-4 h-4 text-yellow-500 flex-shrink-0 mt-0.5" />
-                  <span className="text-xs text-yellow-600 dark:text-yellow-400">
-                    {message.disclaimer}
-                  </span>
-                </div>
-              )}
-
               {/* Tool Result */}
               {hasToolResult && message.toolResult && message.toolName && (
                 <div className="mt-4">
@@ -390,17 +375,6 @@ export default function ChatMessage({ message, isLoading, isSelected, onRegenera
                 >
                   <CopyIcon className="w-4 h-4" />
                 </button>
-                
-                {/* Edit button */}
-                {onEdit && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
-                    className="p-1.5 rounded-md hover:bg-white/20 text-white/70 hover:text-white transition-colors"
-                    title="Edit message"
-                  >
-                    <EditIcon className="w-4 h-4" />
-                  </button>
-                )}
                 
                 {/* Version navigation (only if there are multiple versions) */}
                 {totalVersions > 1 && (

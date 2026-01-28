@@ -100,8 +100,12 @@ export default function UserMenu({
     });
   }, [user.name, user.email]);
 
-  // Fetch transcript stats
+  // Fetch transcript stats - only once on mount
+  const transcriptStatsFetched = useRef(false);
   useEffect(() => {
+    if (transcriptStatsFetched.current) return;
+    transcriptStatsFetched.current = true;
+    
     const fetchTranscriptStats = async () => {
       try {
         const stats = await getTranscriptStats();

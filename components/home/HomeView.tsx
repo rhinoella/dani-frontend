@@ -6,7 +6,7 @@ import {
   SparkleIcon
 } from '@/components/ui/Icons';
 import ThemeToggle from '@/components/ui/ThemeToggle';
-import { uploadDocument, DocumentUploadResponse, ApiError, getFrequentQuestions, waitForDocumentReady } from '@/services/api';
+import { uploadDocument, DocumentUploadResponse, ApiError, waitForDocumentReady } from '@/services/api';
 import FilePreviewModal from '@/components/chat/FilePreviewModal';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -20,7 +20,11 @@ interface UploadingFile {
 }
 
 interface HomeViewProps {
-  onSendMessage: (message: string, documentIds?: string[]) => void;
+  onSendMessage: (
+    message: string, 
+    documentIds?: string[],
+    attachments?: { id: string; name: string; type: 'pdf' | 'docx' | 'txt' | 'other'; size?: number }[]
+  ) => void;
 }
 
 // Get file type from extension
@@ -57,29 +61,24 @@ export default function HomeView({ onSendMessage }: HomeViewProps) {
   } | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>(DEFAULT_SUGGESTIONS);
-  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Fetch frequent questions on mount
+  // Auto-resize textarea based on content
+  const adjustTextareaHeight = () => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      // Max height of ~120px (about 5 lines)
+      const maxHeight = 120;
+      textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+    }
+  };
+
   useEffect(() => {
-    const fetchFrequentQuestions = async () => {
-      try {
-        setIsLoadingSuggestions(true);
-        const questions = await getFrequentQuestions(4);
-        if (questions && questions.length > 0) {
-          setSuggestions(questions);
-        }
-      } catch (error) {
-        console.error('Failed to load frequent questions:', error);
-        // Keep default suggestions on error
-      } finally {
-        setIsLoadingSuggestions(false);
-      }
-    };
-
-    fetchFrequentQuestions();
-  }, []);
+    adjustTextareaHeight();
+  }, [inputValue]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -97,17 +96,29 @@ export default function HomeView({ onSendMessage }: HomeViewProps) {
     };
   }, [isDropdownOpen]);
 
-  // Check if any file is still uploading or processing
-  const isUploading = uploadingFiles.some(f => f.status === 'uploading' || f.status === 'processing');
+  // Check if any file is still uploading (but allow sending while processing)
+  const isUploading = uploadingFiles.some(f => f.status === 'uploading');
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && inputValue.trim() && !isUploading) {
-      // Collect IDs of successfully uploaded files
-      const documentIds = uploadingFiles
-        .filter(f => f.status === 'completed' && f.response?.id)
-        .map(f => f.response!.id);
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey && inputValue.trim() && !isUploading) {
+      // Collect IDs of uploaded files (including processing ones - they have an ID already)
+      const uploadedFiles = uploadingFiles
+        .filter(f => (f.status === 'completed' || f.status === 'processing') && f.response?.id);
       
-      onSendMessage(inputValue.trim(), documentIds.length > 0 ? documentIds : undefined);
+      const documentIds = uploadedFiles.map(f => f.response!.id);
+      
+      const attachments = uploadedFiles.map(f => ({
+        id: f.response!.id,
+        name: f.file.name,
+        type: getFileType(f.file.name) as 'pdf' | 'docx' | 'txt' | 'other',
+        size: f.file.size
+      }));
+      
+      onSendMessage(
+        inputValue.trim(), 
+        documentIds.length > 0 ? documentIds : undefined,
+        attachments.length > 0 ? attachments : undefined
+      );
       setInputValue('');
       setUploadingFiles([]); // Clear uploads after sending
     }
@@ -115,12 +126,24 @@ export default function HomeView({ onSendMessage }: HomeViewProps) {
 
   const handleSubmit = () => {
     if (inputValue.trim() && !isUploading) {
-      // Collect IDs of successfully uploaded files
-      const documentIds = uploadingFiles
-        .filter(f => f.status === 'completed' && f.response?.id)
-        .map(f => f.response!.id);
+      // Collect IDs of uploaded files (including processing ones - they have an ID already)
+      const uploadedFiles = uploadingFiles
+        .filter(f => (f.status === 'completed' || f.status === 'processing') && f.response?.id);
+      
+      const documentIds = uploadedFiles.map(f => f.response!.id);
+      
+      const attachments = uploadedFiles.map(f => ({
+        id: f.response!.id,
+        name: f.file.name,
+        type: getFileType(f.file.name) as 'pdf' | 'docx' | 'txt' | 'other',
+        size: f.file.size
+      }));
 
-      onSendMessage(inputValue.trim(), documentIds.length > 0 ? documentIds : undefined);
+      onSendMessage(
+        inputValue.trim(), 
+        documentIds.length > 0 ? documentIds : undefined,
+        attachments.length > 0 ? attachments : undefined
+      );
       setInputValue('');
       setUploadingFiles([]); // Clear uploads after sending
     }
@@ -425,20 +448,25 @@ export default function HomeView({ onSendMessage }: HomeViewProps) {
               )}
             </div>
 
-            {/* Text Input */}
-            <input 
-              type="text"
+            {/* Text Input - Auto-expanding Textarea */}
+            <textarea 
+              ref={textareaRef}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
               onFocus={() => setIsFocused(true)}
               onBlur={() => setIsFocused(false)}
               placeholder="What do you want to know?"
+              rows={1}
               className="
                 flex-1 bg-transparent border-none outline-none 
                 text-[var(--foreground)] placeholder-[var(--foreground-muted)]
                 px-3 py-3
                 text-lg
+                resize-none
+                overflow-y-auto
+                max-h-[120px]
+                leading-7
               "
             />
 

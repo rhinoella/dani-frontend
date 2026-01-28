@@ -65,6 +65,22 @@ export default function ChatInput({
   const [message, setMessage] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  
+  // Auto-resize textarea based on content
+  const adjustTextareaHeight = () => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      // Max height of ~120px (about 5 lines)
+      const maxHeight = 120;
+      textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+    }
+  };
+
+  useEffect(() => {
+    adjustTextareaHeight();
+  }, [message]);
   
   // Initialize from initialAttachments if provided
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>(() => 
@@ -117,15 +133,15 @@ export default function ChatInput({
     };
   }, [isDropdownOpen]);
 
-  // Check if any file is still uploading or processing
-  const isUploading = uploadingFiles.some(f => f.status === 'uploading' || f.status === 'processing');
+  // Check if any file is still uploading (but allow sending while processing)
+  const isUploading = uploadingFiles.some(f => f.status === 'uploading');
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (message.trim() && !disabled && !isUploading) {
-      // Collect IDs and metadata of successfully uploaded files
+      // Collect IDs and metadata of uploaded files (including processing ones - they have an ID already)
       const uploadedFiles = uploadingFiles
-        .filter(f => f.status === 'completed' && f.response?.id);
+        .filter(f => (f.status === 'completed' || f.status === 'processing') && f.response?.id);
       
       const documentIds = uploadedFiles.map(f => f.response!.id);
       
@@ -146,11 +162,12 @@ export default function ChatInput({
     }
   };
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSubmit(e);
+      handleSubmit(e as unknown as FormEvent);
     }
+    // Shift+Enter allows new line (default textarea behavior)
   };
 
   const handleFileClick = () => {
@@ -494,9 +511,9 @@ export default function ChatInput({
                 )}
               </div>
 
-              {/* Text Input */}
-              <input 
-                type="text"
+              {/* Text Input - Auto-expanding Textarea */}
+              <textarea 
+                ref={textareaRef}
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -504,6 +521,7 @@ export default function ChatInput({
                 onBlur={() => setIsFocused(false)}
                 placeholder={placeholder}
                 disabled={disabled}
+                rows={1}
                 className="
                   flex-1 
                   bg-transparent border-none outline-none 
@@ -511,6 +529,10 @@ export default function ChatInput({
                   placeholder-[var(--foreground-muted)]
                   px-3 py-2
                   text-base
+                  resize-none
+                  overflow-y-auto
+                  max-h-[120px]
+                  leading-6
                 "
               />
 

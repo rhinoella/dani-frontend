@@ -148,18 +148,16 @@ function InfographicImage({
         console.log('[ToolResultBlock] Image load error. useBase64:', useBase64, 'hasS3Key:', !!effectiveS3Key, 'hasTriedRegeneration:', hasTriedRegeneration.current);
         
         if (!useBase64) {
-          // URL failed - try regeneration if we have s3_key (allow retry on URL failure)
-          if (effectiveS3Key) {
-            // Reset the flag to allow regeneration on URL failure
-            hasTriedRegeneration.current = false;
-            tryRegenerateUrl();
+          // URL failed - try base64 fallback first (CSP may be blocking external URLs)
+          if (base64Src) {
+            console.log('[ToolResultBlock] Image URL failed (possibly CSP), falling back to base64');
+            setUseBase64(true);
             return;
           }
           
-          // Try base64 fallback
-          if (base64Src) {
-            console.log('[ToolResultBlock] Image URL failed, falling back to base64');
-            setUseBase64(true);
+          // No base64 available - try regeneration ONCE if we have s3_key and haven't tried yet
+          if (effectiveS3Key && !hasTriedRegeneration.current) {
+            tryRegenerateUrl();
             return;
           }
         }
@@ -201,6 +199,19 @@ const CheckIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
 export function ToolResultBlock({ toolName, data }: ToolResultBlockProps) {
   const [isExpanded, setIsExpanded] = React.useState(true);
   const [copied, setCopied] = React.useState(false);
+
+  // Debug logging
+  React.useEffect(() => {
+    console.log('[ToolResultBlock] Rendering with:', {
+      toolName,
+      hasStructuredData: !!data?.structured_data,
+      hasImage: !!data?.image,
+      hasImageUrl: !!data?.image_url,
+      hasS3Key: !!data?.s3_key,
+      s3Key: data?.s3_key,
+      imageUrlPreview: data?.image_url?.substring(0, 100),
+    });
+  }, [toolName, data]);
 
   const handleCopy = async (text: string) => {
     await navigator.clipboard.writeText(text);

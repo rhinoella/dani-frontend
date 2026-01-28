@@ -567,11 +567,20 @@ export async function deleteConversation(
 ): Promise<void> {
   console.log("[API] deleteConversation:", conversationId);
   const authHeaders = await getAuthHeaders();
+  console.log("[API] deleteConversation authHeaders:", Object.keys(authHeaders));
+  
   const response = await fetch(`${API_URL}/conversations/${conversationId}`, {
     method: "DELETE",
     headers: authHeaders,
   });
 
+  console.log("[API] deleteConversation response status:", response.status);
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("[API] deleteConversation error:", response.status, errorText);
+  }
+  
   await handleResponse(response);
   console.log("[API] deleteConversation complete");
 }
@@ -750,7 +759,7 @@ export async function getDocumentStatus(
 export async function waitForDocumentReady(
   documentId: string,
   onStatusChange?: (status: DocumentStatus) => void,
-  pollInterval = 4000, // 4 seconds to stay under 20/min rate limit
+  pollInterval = 2000, // 2 seconds for faster feedback
   maxWaitMs = 180000 // 3 minutes max
 ): Promise<DocumentResponse> {
   const startTime = Date.now();

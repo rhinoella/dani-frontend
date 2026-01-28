@@ -151,52 +151,127 @@ export default function ChatPage() {
 
   // Select pending conversation once conversations are loaded
   useEffect(() => {
-    if (pendingConversationId && conversations.length > 0 && !isLoadingHistory) {
-      // Prevent duplicate loads
-      if (loadingConversationRef.current === pendingConversationId) {
-        return;
+    // Early exit if no pending conversation or still loading
+    if (!pendingConversationId || isLoadingHistory) {
+      return;
+    }
+    
+    // Wait for conversations to be loaded
+    if (conversations.length === 0) {
+      return;
+    }
+    
+    // Prevent duplicate loads - check ref first
+    if (loadingConversationRef.current === pendingConversationId) {
+      return;
+    }
+    
+    const existingConv = conversations.find(c => c.id === pendingConversationId);
+    if (!existingConv) {
+      // Conversation not found, clear pending and go to new
+      console.log('[Chat] Pending conversation not found:', pendingConversationId);
+      setPendingConversationId(null);
+      setCurrentConversationId('new');
+      return;
+    }
+    
+    // Check if messages are already loaded - if so, just set the conversation ID
+    if (existingConv.messages.length > 0) {
+      console.log('[Chat] Messages already loaded for pending conversation');
+      setCurrentConversationId(pendingConversationId);
+      setPendingConversationId(null);
+      
+      // Restore sources from last assistant message
+      const lastAssistantMsg = [...existingConv.messages]
+        .reverse()
+        .find((m) => m.role === "assistant");
+      if (lastAssistantMsg?.sources && lastAssistantMsg.sources.length > 0) {
+        setSources(
+          lastAssistantMsg.sources.map((s) => ({
+            title: s.title || null,
+            date: s.date || null,
+            transcript_id: s.transcript_id || null,
+            speakers: s.speakers || [],
+            text_preview: s.text_preview || "",
+            relevance_score: s.relevance_score ?? null,
+          }))
+        );
+        setSelectedMessageId(lastAssistantMsg.id);
+      }
+      return;
+    }
+    
+    // Mark as loading to prevent duplicate calls - BEFORE clearing pending
+    loadingConversationRef.current = pendingConversationId;
+    const conversationToLoad = pendingConversationId;
+    
+    // Clear pending immediately to prevent re-triggering
+    setPendingConversationId(null);
+    setCurrentConversationId(conversationToLoad);
+    
+    // Update URL to preserve conversation on refresh
+    router.replace(`/chat?conversation=${conversationToLoad}`, { scroll: false });
+    
+    // Load messages for this conversation
+    console.log('[Chat] Loading messages for pending conversation:', conversationToLoad);
+    getConversationWithMessages(conversationToLoad).then(response => {
+      // Debug: Log raw API response
+      console.log('[Chat] Raw API response messages:', response.messages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        hasMetadata: !!m.metadata,
+        metadataKeys: m.metadata ? Object.keys(m.metadata) : null,
+        hasToolResult: !!m.metadata?.tool_result,
+        hasToolName: !!m.metadata?.tool_name,
+        toolResultKeys: m.metadata?.tool_result ? Object.keys(m.metadata.tool_result) : null,
+      })));
+      
+      const messages: Message[] = response.messages.map((m) => ({
+        id: m.id,
+        role: m.role as "user" | "assistant",
+        content: m.content,
+        timestamp: new Date(m.created_at),
+        // Map tool result data from metadata
+        toolResult: (m.metadata?.tool_result as any),
+        toolName: (m.metadata?.tool_name as any),
+        // Map paired history for version navigation
+        pairedHistory: (m.metadata?.paired_history as any),
+        sources: (m.sources || []).map((s) => ({
+          title: s.title || null,
+          date: s.date || null,
+          transcript_id: s.transcript_id || null,
+          speakers: s.speakers || [],
+          text_preview: s.text_preview || "",
+          relevance_score: s.relevance_score ?? null,
+        })),
+      }));
+      
+      setConversations(prev => prev.map(c => 
+        c.id === conversationToLoad ? { ...c, messages } : c
+      ));
+      
+      // Show sources from last assistant message
+      const lastAssistantMsg = messages.slice().reverse().find(m => m.role === 'assistant');
+      if (lastAssistantMsg?.sources && lastAssistantMsg.sources.length > 0) {
+        setSources(
+          lastAssistantMsg.sources.map((s) => ({
+            title: s.title || null,
+            date: s.date || null,
+            transcript_id: s.transcript_id || null,
+            speakers: s.speakers || [],
+            text_preview: s.text_preview || "",
+            relevance_score: s.relevance_score ?? null,
+          }))
+        );
+        setSelectedMessageId(lastAssistantMsg.id);
       }
       
-      const convExists = conversations.some(c => c.id === pendingConversationId);
-      if (convExists) {
-        // Mark as loading to prevent duplicate calls
-        loadingConversationRef.current = pendingConversationId;
-        
-        // We need to call the selection logic - but handleSelectConversation is defined after
-        // So we just set the ID and let the existing flow handle it
-        setCurrentConversationId(pendingConversationId);
-        // Load messages for this conversation
-        getConversationWithMessages(pendingConversationId).then(response => {
-          const messages: Message[] = response.messages.map((m) => ({
-            id: m.id,
-            role: m.role as "user" | "assistant",
-            content: m.content,
-            timestamp: new Date(m.created_at),
-            // Map tool result data from metadata
-            toolResult: (m.metadata?.tool_result as any),
-            toolName: (m.metadata?.tool_name as any),
-            // Map paired history for version navigation
-            pairedHistory: (m.metadata?.paired_history as any),
-            sources: (m.sources || []).map((s) => ({
-              title: s.title || "Untitled",
-              content: s.text_preview || "",
-              score: s.relevance_score || 0,
-            })),
-          }));
-          setConversations(prev => prev.map(c => 
-            c.id === pendingConversationId ? { ...c, messages } : c
-          ));
-          // Clear loading ref after successful load
-          loadingConversationRef.current = null;
-        }).catch(err => {
-          console.error('[Chat] Failed to load conversation messages:', err);
-          loadingConversationRef.current = null;
-        });
-        setPendingConversationId(null);
-        // Update URL to preserve conversation on refresh (don't clear it!)
-        router.replace(`/chat?conversation=${pendingConversationId}`, { scroll: false });
-      }
-    }
+      // Clear loading ref after successful load
+      loadingConversationRef.current = null;
+    }).catch(err => {
+      console.error('[Chat] Failed to load conversation messages:', err);
+      loadingConversationRef.current = null;
+    });
   }, [pendingConversationId, conversations, isLoadingHistory, router]);
 
   // Load messages when a conversation is selected
@@ -208,6 +283,9 @@ export default function ChatPage() {
         console.log("[Chat] Starting new conversation");
         setCurrentConversationId("new");
         loadingConversationRef.current = null;
+        // Clear sources for new conversation
+        setSources([]);
+        setSelectedMessageId(null);
         // Update URL to reflect new conversation
         router.replace('/chat', { scroll: false });
         return;
@@ -252,6 +330,11 @@ export default function ChatPage() {
             }))
           );
           setSelectedMessageId(lastAssistantMsg.id);
+        } else {
+          // Clear sources if no sources on last message
+          console.log("[Chat] No sources on last assistant message, clearing");
+          setSources([]);
+          setSelectedMessageId(null);
         }
         return;
       }
@@ -354,6 +437,11 @@ export default function ChatPage() {
             "[Chat] Loaded sources for last assistant message:",
             lastAssistantMsg.sources.length
           );
+        } else {
+          // Clear sources if no sources found
+          console.log("[Chat] No sources on last assistant message from backend, clearing");
+          setSources([]);
+          setSelectedMessageId(null);
         }
       } catch (error) {
         console.error("[Chat] Failed to load conversation messages:", error);
@@ -379,7 +467,13 @@ export default function ChatPage() {
           createdAt: new Date(),
           updatedAt: new Date(),
         } as Conversation)
-      : conversations.find((c) => c.id === currentConversationId);
+      : conversations.find((c) => c.id === currentConversationId) || ({
+          id: currentConversationId || "new",
+          title: "Conversation",
+          messages: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as Conversation);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -656,19 +750,27 @@ export default function ChatPage() {
 
       // Add to the correct conversation (use backend ID if available)
       const targetConvId = backendConversationId || activeConversationId;
-      console.log("[Chat] Adding AI response to conversation:", targetConvId);
-      setConversations((prev) =>
-        prev.map((conv) =>
-          conv.id === targetConvId ||
-          (isNewConversation && conv.id.startsWith("temp-"))
+      console.log("[Chat] Adding AI response to conversation:", targetConvId, "isNewConversation:", isNewConversation);
+      setConversations((prev) => {
+        console.log("[Chat] Current conversations:", prev.map(c => ({ id: c.id, msgCount: c.messages.length })));
+        return prev.map((conv) => {
+          const shouldUpdate = conv.id === targetConvId ||
+            (isNewConversation && conv.id.startsWith("temp-")) ||
+            (isNewConversation && conv.id === backendConversationId);
+          
+          if (shouldUpdate) {
+            console.log("[Chat] Adding AI response to conv:", conv.id);
+          }
+          
+          return shouldUpdate
             ? {
                 ...conv,
                 messages: [...conv.messages, aiResponse],
                 updatedAt: new Date(),
               }
-            : conv
-        )
-      );
+            : conv;
+        });
+      });
     } catch (error) {
       console.error("Chat error:", error);
 
@@ -856,6 +958,26 @@ export default function ChatPage() {
   };
 
   const handleDeleteConversation = async (id: string) => {
+    console.log("[Chat] handleDeleteConversation called with id:", id);
+    
+    // Skip backend call for temp conversations (not yet saved)
+    if (id.startsWith('temp-')) {
+      console.log("[Chat] Removing temp conversation from UI only:", id);
+      setConversations((prev) => prev.filter((conv) => conv.id !== id));
+      if (currentConversationId === id) {
+        const remaining = conversations.filter((conv) => conv.id !== id);
+        if (remaining.length > 0) {
+          setCurrentConversationId(remaining[0].id);
+        } else {
+          handleNewConversation();
+        }
+      }
+      return;
+    }
+    
+    // Store for potential restoration
+    const conversationToDelete = conversations.find(c => c.id === id);
+    
     // Optimistically remove from UI
     setConversations((prev) => prev.filter((conv) => conv.id !== id));
     if (currentConversationId === id) {
@@ -870,9 +992,14 @@ export default function ChatPage() {
     // Delete from backend
     try {
       await apiDeleteConversation(id);
+      console.log("[Chat] Delete successful for:", id);
     } catch (error) {
-      console.error("Failed to delete conversation:", error);
-      // Could restore the conversation here if needed
+      console.error("[Chat] Failed to delete conversation:", error);
+      // Restore the conversation if deletion failed
+      if (conversationToDelete) {
+        console.log("[Chat] Restoring conversation after failed delete");
+        setConversations((prev) => [conversationToDelete, ...prev]);
+      }
     }
   };
 
