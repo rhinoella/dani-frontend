@@ -90,6 +90,7 @@ export default function UserMenu({
   const { updateUser } = useAuth();
   const { theme, setTheme } = useTheme();
   const [isAppearanceOpen, setIsAppearanceOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const appearanceOptions = [
     { value: 'system' as const, label: 'System' },
@@ -105,6 +106,7 @@ export default function UserMenu({
       name: user.name,
       email: user.email || '',
     });
+    setError(null); // Clear error when user changes
   }, [user.name, user.email]);
 
   // Fetch transcript stats - only once on mount
@@ -128,6 +130,7 @@ export default function UserMenu({
 
   const handleSaveProfile = async () => {
     setIsSaving(true);
+    setError(null);
     try {
       const success = await updateUser({ name: editForm.name });
       if (success) {
@@ -141,10 +144,11 @@ export default function UserMenu({
         }
       } else {
         console.error('Failed to update profile');
-        // Could add toast notification here
+        setError('Failed to update profile. Please try again.');
       }
     } catch (error) {
       console.error('Error updating profile:', error);
+      setError('An error occurred while updating profile.');
     } finally {
       setIsSaving(false);
     }
@@ -588,9 +592,19 @@ export default function UserMenu({
                 {isSaving ? 'Saving...' : 'Save'}
               </button>
             </div>
+            
+            {/* Error Message */}
+            {error && (
+              <div className="px-6 pb-6">
+                <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg dark:bg-red-900/20 dark:border-red-900/50 dark:text-red-300">
+                  {error}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
+
       {/* User Management Modal */}
       {isUserManagementOpen && (
         <UserManagementModal onClose={() => setIsUserManagementOpen(false)} />
