@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import ChatLayout from "@/components/layouts/ChatLayout";
 import ChatMessage from "@/components/chat/ChatMessage";
@@ -36,7 +36,7 @@ import {
 import { generateUUID } from "@/utils/uuid";
 import { useAuth } from "@/contexts/AuthContext";
 
-export default function ChatPage() {
+function ChatContent() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationId] =
     useState<string | null>(null); // Start as null, will be set from URL or 'new'
@@ -226,27 +226,36 @@ export default function ChatPage() {
         toolResultKeys: m.metadata?.tool_result ? Object.keys(m.metadata.tool_result) : null,
       })));
       
-      const messages: Message[] = response.messages.map((m) => ({
-        id: m.id,
-        role: m.role as "user" | "assistant",
-        content: m.content,
-        timestamp: new Date(m.created_at),
-        // Map tool result data from metadata
-        toolResult: (m.metadata?.tool_result as any),
-        toolName: (m.metadata?.tool_name as any),
-        // Map attachments from metadata for document display
-        attachments: (m.metadata?.attachments as any),
-        // Map paired history for version navigation
-        pairedHistory: (m.metadata?.paired_history as any),
-        sources: (m.sources || []).map((s) => ({
-          title: s.title || null,
-          date: s.date || null,
-          transcript_id: s.transcript_id || null,
-          speakers: s.speakers || [],
-          text_preview: s.text_preview || "",
-          relevance_score: s.relevance_score ?? null,
-        })),
-      }));
+      const messages: Message[] = response.messages.map((m) => {
+        // Debug attachments presence
+        if (m.metadata?.attachments) {
+          console.log(`[Chat] Message ${m.id} has attachments:`, m.metadata.attachments);
+        }
+
+        return {
+          id: m.id,
+          role: m.role as "user" | "assistant",
+          content: m.content,
+          timestamp: new Date(m.created_at),
+          // Map tool result data from metadata
+          toolResult: (m.metadata?.tool_result as any),
+          toolName: (m.metadata?.tool_name as any),
+          // Map attachments from metadata for document display - explicit array check
+          attachments: (m.metadata?.attachments && Array.isArray(m.metadata.attachments)) 
+            ? (m.metadata.attachments as any) 
+            : undefined,
+          // Map paired history for version navigation
+          pairedHistory: (m.metadata?.paired_history as any),
+          sources: (m.sources || []).map((s) => ({
+            title: s.title || undefined,
+            date: s.date || undefined,
+            transcript_id: s.transcript_id || undefined,
+            speakers: s.speakers || [],
+            text_preview: s.text_preview || "",
+            relevance_score: s.relevance_score ?? undefined,
+          })),
+        };
+      });
       
       setConversations(prev => prev.map(c => 
         c.id === conversationToLoad ? { ...c, messages } : c
@@ -1169,5 +1178,13 @@ export default function ChatPage() {
         </div>
       </ChatLayout>
     </ProtectedRoute>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={<div className="flex h-screen items-center justify-center">Loading...</div>}>
+      <ChatContent />
+    </Suspense>
   );
 }

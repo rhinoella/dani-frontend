@@ -109,7 +109,7 @@ const MAX_CONCURRENT_UPLOADS = 3;
 
 function DocumentsPageContent() {
   const router = useRouter();
-  const { logout } = useAuth();
+  const { signOut: logout } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [documents, setDocuments] = useState<DocumentResponse[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -128,7 +128,13 @@ function DocumentsPageContent() {
     const fetchConversations = async () => {
       try {
         const response = await getConversations();
-        setConversations(response.conversations || []);
+        setConversations((response.conversations || []).map(c => ({
+          id: c.id,
+          title: c.title || 'New Conversation',
+          messages: [],
+          createdAt: new Date(c.created_at),
+          updatedAt: new Date(c.updated_at || c.created_at),
+        })));
       } catch (error) {
         console.error('Failed to fetch conversations:', error);
       }
