@@ -126,8 +126,8 @@ export default function SourcesPanel({ isOpen, onClose, sources = [] }: SourcesP
         className="
           hidden lg:flex lg:flex-col
           w-80 h-full flex-shrink-0 
-          border-l border-[var(--border)] 
-          bg-[var(--background)]
+          border-l border-gray-200 
+          bg-white
           transition-all duration-300 ease-out
           overflow-hidden
         "

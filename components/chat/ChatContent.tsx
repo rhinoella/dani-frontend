@@ -1100,6 +1100,7 @@ export default function ChatContent() {
         onSelectConversation={handleSelectConversation}
         onNewConversation={handleNewConversation}
         user={user}
+        sources={sources}
       >
         <div className="relative flex-1 flex flex-col overflow-hidden bg-white">
           {/* Content Area */}

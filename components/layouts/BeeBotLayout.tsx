@@ -1,9 +1,10 @@
 'use client';
 
-import { ReactNode } from 'react';
+import { useState, ReactNode } from 'react';
 import BeeBotSidebar from '@/components/chat/BeeBotSidebar';
 import BeeBotHeader from '@/components/chat/BeeBotHeader';
-import { Conversation, AuthUser } from '@/types';
+import SourcesPanel from '@/components/chat/SourcesPanel';
+import { Conversation, AuthUser, Source } from '@/types';
 
 interface BeeBotLayoutProps {
   children: ReactNode;
@@ -12,6 +13,7 @@ interface BeeBotLayoutProps {
   onSelectConversation: (id: string) => void;
   onNewConversation: () => void;
   user: AuthUser | null;
+  sources?: Source[];
 }
 
 export default function BeeBotLayout({
@@ -21,7 +23,10 @@ export default function BeeBotLayout({
   onSelectConversation,
   onNewConversation,
   user,
+  sources = [],
 }: BeeBotLayoutProps) {
+  const [isSourcesOpen, setIsSourcesOpen] = useState(false);
+
   return (
     <div className="flex h-screen bg-white overflow-hidden">
       {/* Sidebar */}
@@ -35,11 +40,24 @@ export default function BeeBotLayout({
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <BeeBotHeader onNewChat={onNewConversation} user={user} />
+        <BeeBotHeader 
+          onNewChat={onNewConversation} 
+          user={user}
+          onToggleSources={() => setIsSourcesOpen(!isSourcesOpen)}
+          isSourcesOpen={isSourcesOpen}
+          sourcesCount={sources.length}
+        />
 
         {/* Content */}
         {children}
       </div>
+
+      {/* Sources Panel */}
+      <SourcesPanel 
+        isOpen={isSourcesOpen} 
+        onClose={() => setIsSourcesOpen(false)}
+        sources={sources}
+      />
     </div>
   );
 }
