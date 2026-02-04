@@ -15,9 +15,12 @@ const StaticSphere = () => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // Clear canvas first
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
     const centerX = canvas.width / 2;
     const centerY = canvas.height / 2;
-    const radius = 10;
+    const radius = 14;
 
     const gradient = ctx.createRadialGradient(
       centerX,
@@ -40,7 +43,7 @@ const StaticSphere = () => {
     ctx.fill();
   }, []);
 
-  return <canvas ref={canvasRef} width={24} height={24} className="rounded-full" />;
+  return <canvas ref={canvasRef} width={32} height={32} className="rounded-full block" />;
 };
 
 interface ChatMessageProps {
@@ -89,7 +92,7 @@ export default function ChatMessage({ message, isLoading, isSelected, onSelectMe
                 </div>
               )
             ) : (
-              <div className="w-6 h-6 rounded-full flex items-center justify-center overflow-hidden">
+              <div className="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0">
                 <StaticSphere />
               </div>
             )}

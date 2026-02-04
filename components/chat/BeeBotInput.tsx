@@ -12,6 +12,7 @@ export default function BeeBotInput({
   disabled = false,
 }: BeeBotInputProps) {
   const [message, setMessage] = useState('');
+  const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const adjustTextareaHeight = () => {
@@ -46,7 +47,11 @@ export default function BeeBotInput({
       <div className="max-w-3xl mx-auto">
         <form onSubmit={handleSubmit}>
           {/* Input Container */}
-          <div className="relative bg-[#F5F5F5] rounded-[20px] border border-gray-200 shadow-sm">
+          <div className={`relative bg-[#F5F5F5] rounded-[20px] border shadow-sm transition-all ${
+            isFocused 
+              ? 'border-[#FF8C00] ring-2 ring-[#FF8C00]/20' 
+              : 'border-gray-200'
+          }`}>
             <div className="flex items-center gap-2 px-4 py-3">
               {/* Attach Icon */}
               <button
@@ -71,10 +76,13 @@ export default function BeeBotInput({
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 onKeyDown={handleKeyDown}
+                onFocus={() => setIsFocused(true)}
+                onBlur={() => setIsFocused(false)}
                 placeholder="Initiate a query or send a command to the AI..."
                 disabled={disabled}
                 rows={1}
-                className="flex-1 bg-transparent border-none outline-none resize-none text-gray-700 placeholder:text-gray-400 text-sm leading-6 max-h-[120px]"
+                className="flex-1 bg-transparent border-none outline-none resize-none text-gray-700 placeholder:text-gray-400 text-sm leading-6 max-h-[120px] focus:outline-none focus:ring-0 focus:border-none focus-visible:outline-none focus-visible:ring-0"
+                style={{ outline: 'none', boxShadow: 'none' }}
               />
 
               {/* Send Button */}
