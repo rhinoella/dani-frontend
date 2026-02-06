@@ -72,9 +72,9 @@ function InfographicImage({
     
     try {
       console.log('[ToolResultBlock] Attempting to regenerate URL from S3 key:', effectiveS3Key);
-      const newUrl = await regenerateImageUrl(effectiveS3Key);
-      console.log('[ToolResultBlock] Successfully regenerated URL:', newUrl);
-      setCurrentUrl(newUrl);
+      const res = await regenerateImageUrl(effectiveS3Key);
+      console.log('[ToolResultBlock] Successfully regenerated URL:', res.url);
+      setCurrentUrl(res.url);
       setUseBase64(false);
       setImageError(false);
     } catch (error) {

@@ -250,7 +250,8 @@ export default function UserManagementView({ onClose }: UserManagementViewProps)
                       />
                     ) : (
                       <Avatar
-                        name={user.name}
+                        alt={user.name}
+                        fallback={user.name}
                         size="md"
                         className="bg-gradient-to-br from-orange-400 to-pink-400 text-white"
                       />

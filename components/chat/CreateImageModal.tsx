@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { generateInfographic, getInfographicStyles, InfographicRequest, InfographicResponse } from '@/services/api';
+import { generateInfographic, getInfographicStyles, regenerateImageUrl, InfographicRequest, InfographicResponse } from '@/services/api';
 
 interface CreateImageModalProps {
   isOpen: boolean;
@@ -229,9 +229,20 @@ export default function CreateImageModal({ isOpen, onClose, initialRequest = '' 
                         src={result.image_url}
                         alt={result.structured_data.headline}
                         className="w-full h-auto"
-                        onError={(e) => {
+                        onError={async (e) => {
                           const target = e.target as HTMLImageElement;
-                          target.style.display = 'none';
+                          // Try to regenerate URL if we have s3_key in metadata
+                          if (result.metadata?.s3_key) {
+                            try {
+                              const response = await regenerateImageUrl(result.metadata.s3_key, 86400);
+                              target.src = response.url;
+                            } catch (err) {
+                              console.error('Failed to regenerate URL:', err);
+                              target.style.display = 'none';
+                            }
+                          } else {
+                            target.style.display = 'none';
+                          }
                         }}
                       />
                     </div>

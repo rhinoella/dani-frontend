@@ -1177,9 +1177,13 @@ export interface InfographicResponse {
   structured_data: StructuredData;
   image?: string; // Base64
   image_url?: string; // S3 URL
+  s3_key?: string; // S3 key for URL regeneration
   sources: any[];
   confidence: any;
-  metadata: any;
+  metadata?: {
+    s3_key?: string;
+    [key: string]: unknown;
+  };
   error_message?: string;
 }
 
@@ -1189,6 +1193,7 @@ export interface InfographicListItem {
   style?: string;
   status: string;
   image_url?: string;
+  s3_key?: string; // S3 key for URL regeneration
   created_at?: string;
 }
 

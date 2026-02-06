@@ -191,7 +191,7 @@ export default function UserManagementModal({ onClose }: UserManagementModalProp
                     key={user.id} 
                     className="flex items-center gap-3 p-3 rounded-xl bg-[var(--surface)] border border-[var(--border)]"
                   >
-                    <Avatar src={user.picture_url} alt={user.name} fallback={user.name} size="sm" />
+                    <Avatar src={user.picture_url ?? undefined} alt={user.name} fallback={user.name} size="sm" />
                     
                     <div className="flex-1 min-w-0">
                       {editingUserId === user.id ? (

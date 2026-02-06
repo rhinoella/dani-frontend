@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { listInfographics, deleteInfographic, getInfographicDownloadUrl, InfographicListItem } from '@/services/api';
+import { listInfographics, deleteInfographic, getInfographicDownloadUrl, regenerateImageUrl, InfographicListItem } from '@/services/api';
 
 export default function InfographicsView() {
   const [infographics, setInfographics] = useState<InfographicListItem[]>([]);
@@ -47,9 +47,50 @@ export default function InfographicsView() {
     }
   };
 
-  const handleDownload = (infographicId: string) => {
-    const url = getInfographicDownloadUrl(infographicId);
+  const handleDownload = async (infographicId: string) => {
+    const url = await getInfographicDownloadUrl(infographicId);
     window.open(url, '_blank');
+  };
+
+  const [regeneratingUrls, setRegeneratingUrls] = useState<Set<string>>(new Set());
+  const [regeneratedUrls, setRegeneratedUrls] = useState<Map<string, string>>(new Map());
+  const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
+
+  const handleImageError = async (infographic: InfographicListItem, e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    
+    // If we already have a regenerated URL, don't try again
+    if (regeneratedUrls.has(infographic.id)) {
+      setFailedImages(prev => new Set(prev).add(infographic.id));
+      return;
+    }
+
+    // If we're already regenerating, don't try again
+    if (regeneratingUrls.has(infographic.id)) {
+      return;
+    }
+
+    // If we have an S3 key, try to regenerate the URL
+    if (infographic.s3_key) {
+      setRegeneratingUrls(prev => new Set(prev).add(infographic.id));
+      try {
+        const response = await regenerateImageUrl(infographic.s3_key, 86400);
+        setRegeneratedUrls(prev => new Map(prev).set(infographic.id, response.url));
+        img.src = response.url;
+      } catch (err) {
+        console.error('Failed to regenerate URL:', err);
+        setFailedImages(prev => new Set(prev).add(infographic.id));
+      } finally {
+        setRegeneratingUrls(prev => {
+          const next = new Set(prev);
+          next.delete(infographic.id);
+          return next;
+        });
+      }
+    } else {
+      // No S3 key available - mark as failed
+      setFailedImages(prev => new Set(prev).add(infographic.id));
+    }
   };
 
   const formatDate = (dateString: string | undefined): string => {
@@ -179,21 +220,45 @@ export default function InfographicsView() {
                     className="group relative bg-white border border-gray-200 rounded-lg overflow-hidden hover:shadow-lg transition-all"
                   >
                     {/* Image Preview */}
-                    {infographic.image_url ? (
+                    {failedImages.has(infographic.id) ? (
+                      <div className="aspect-video bg-gray-100 flex flex-col items-center justify-center text-gray-400">
+                        <svg className="w-12 h-12 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        <p className="text-xs mb-2">Image unavailable</p>
+                        <button
+                          onClick={() => handleDownload(infographic.id)}
+                          className="px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded text-gray-700 transition-colors"
+                        >
+                          Download
+                        </button>
+                      </div>
+                    ) : (infographic.image_url || regeneratedUrls.get(infographic.id)) ? (
                       <div className="aspect-video bg-gray-100 relative overflow-hidden">
                         <img
-                          src={infographic.image_url}
+                          src={regeneratedUrls.get(infographic.id) || infographic.image_url}
                           alt={infographic.headline || 'Infographic'}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement;
-                            target.style.display = 'none';
-                            const parent = target.parentElement;
-                            if (parent) {
-                              parent.innerHTML = '<div class="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400"><svg class="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg></div>';
-                            }
+                          onError={(e) => handleImageError(infographic, e)}
+                          onLoad={() => {
+                            // Clear any error state if image loads successfully
+                            setRegeneratingUrls(prev => {
+                              const next = new Set(prev);
+                              next.delete(infographic.id);
+                              return next;
+                            });
+                            setFailedImages(prev => {
+                              const next = new Set(prev);
+                              next.delete(infographic.id);
+                              return next;
+                            });
                           }}
                         />
+                        {regeneratingUrls.has(infographic.id) && (
+                          <div className="absolute inset-0 bg-gray-100/80 flex items-center justify-center">
+                            <div className="w-6 h-6 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="aspect-video bg-gray-100 flex items-center justify-center">

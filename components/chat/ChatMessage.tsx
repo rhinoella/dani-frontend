@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Message } from '@/types';
 import { CopyIcon, ThumbsUpIcon, ThumbsDownIcon } from '@/components/ui/Icons';
+import ToolResultBlock from '@/components/chat/ToolResultBlock';
 
 // Static Pulsating Sphere for AI (no animation)
 const StaticSphere = () => {
@@ -119,9 +120,11 @@ export default function ChatMessage({ message, isLoading, isSelected, onSelectMe
                   <span className="text-sm">Thinking...</span>
                 </div>
               ) : (
-                <div className={`whitespace-pre-wrap break-words text-sm leading-relaxed ${isUser ? 'text-gray-900' : 'text-gray-800'}`}>
-                  {message.content}
-                </div>
+                message.content ? (
+                  <div className={`whitespace-pre-wrap break-words text-sm leading-relaxed ${isUser ? 'text-gray-900' : 'text-gray-800'}`}>
+                    {message.content}
+                  </div>
+                ) : null
               )}
             </div>
 
@@ -166,6 +169,16 @@ export default function ChatMessage({ message, isLoading, isSelected, onSelectMe
                   <CopyIcon className="w-3.5 h-3.5" />
                   {copied ? 'Copied!' : 'Copy'}
                 </button>
+              </div>
+            )}
+
+            {/* Tool result (e.g. generated infographic) */}
+            {!isUser && message.toolResult && message.toolName && (
+              <div className="mt-3">
+                <ToolResultBlock
+                  toolName={message.toolName as "infographic_generator" | "content_writer"}
+                  data={message.toolResult}
+                />
               </div>
             )}
           </div>

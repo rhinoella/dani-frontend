@@ -38,10 +38,12 @@ import {
   getConversationWithMessages,
   deleteConversation as apiDeleteConversation,
   editMessage,
+  generateInfographic,
   TimingData,
   ConfidenceData as ApiConfidenceData,
   ToolResultData,
 } from "@/services/api";
+import type { ImageGenOptions } from "@/components/chat/BeeBotInput";
 import { generateUUID } from "@/utils/uuid";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -1000,6 +1002,125 @@ export default function ChatContent() {
     }
   };
 
+  const handleGenerateImage = useCallback(
+    async (request: string, options: ImageGenOptions) => {
+      const messageId = generateUUID();
+      const newUserMessage: Message = {
+        id: `msg-${messageId}`,
+        content: request,
+        role: "user",
+        timestamp: new Date(),
+      };
+
+      const isNewConversation = currentConversationId === "new" || currentConversationId === null;
+      let activeConversationId: string | undefined;
+
+      if (isNewConversation) {
+        const tempId = `temp-${generateUUID()}`;
+        const newConversation: Conversation = {
+          id: tempId,
+          title: request.slice(0, 50) + (request.length > 50 ? "..." : ""),
+          messages: [newUserMessage],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        setConversations((prev) => [newConversation, ...prev]);
+        setCurrentConversationId(tempId);
+        activeConversationId = tempId;
+      } else {
+        activeConversationId = currentConversationId ?? undefined;
+        setConversations((prev) =>
+          prev.map((conv) =>
+            conv.id === currentConversationId
+              ? { ...conv, messages: [...conv.messages, newUserMessage], updatedAt: new Date() }
+              : conv
+          )
+        );
+      }
+
+      setToolState({
+        isActive: true,
+        toolName: "infographic_generator",
+        status: "processing",
+        message: "Generating infographic...",
+      });
+      setIsLoading(true);
+
+      try {
+        const data = await generateInfographic({
+          request,
+          style: options.style as any,
+          doc_type: options.docType === "all" ? undefined : options.docType,
+          width: options.width,
+          height: options.height,
+          output_format: "visual",
+        });
+
+        const toolResult: ToolResultData = {
+          structured_data: data.structured_data,
+          image: data.image,
+          image_url: data.image_url,
+          s3_key: data.s3_key ?? data.metadata?.s3_key,
+          infographic_id: data.id ?? undefined,
+          sources: data.sources,
+          timing_ms: 0,
+        };
+
+        const aiMessageId = `msg-${generateUUID()}`;
+        const aiResponse: Message = {
+          id: aiMessageId,
+          content: data.error_message ? `Error: ${data.error_message}` : "",
+          role: "assistant",
+          timestamp: new Date(),
+          toolResult,
+          toolName: "infographic_generator",
+        };
+
+        setSelectedMessageId(aiMessageId);
+        setConversations((prev) =>
+          prev.map((conv) => {
+            if (conv.id === activeConversationId || (isNewConversation && conv.id.startsWith("temp-"))) {
+              return { ...conv, messages: [...conv.messages, aiResponse], updatedAt: new Date() };
+            }
+            return conv;
+          })
+        );
+
+        if (data.sources && data.sources.length > 0) {
+          setSources(
+            data.sources.map((s: any) => ({
+              title: s.title || null,
+              date: s.date || null,
+              transcript_id: null,
+              speakers: [],
+              text_preview: s.text_preview || s.text || "",
+              relevance_score: s.relevance_score ?? null,
+            }))
+          );
+        }
+      } catch (error) {
+        const errorMessage: Message = {
+          id: `msg-${generateUUID()}`,
+          content: `Failed to generate infographic: ${error instanceof Error ? error.message : "Unknown error"}`,
+          role: "assistant",
+          timestamp: new Date(),
+        };
+        setConversations((prev) =>
+          prev.map((conv) => {
+            if (conv.id === activeConversationId || (isNewConversation && conv.id.startsWith("temp-"))) {
+              return { ...conv, messages: [...conv.messages, errorMessage], updatedAt: new Date() };
+            }
+            return conv;
+          })
+        );
+      } finally {
+        setIsLoading(false);
+        setToolState({ isActive: false });
+      }
+    },
+    [currentConversationId, conversations]
+  );
+
   const handleNewConversation = () => {
     setCurrentConversationId("new");
   };
@@ -1241,6 +1362,7 @@ export default function ChatContent() {
           <div className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-100">
             <BeeBotInput
               onSendMessage={(msg, attachments) => handleSendMessage(msg, undefined, attachments)}
+              onGenerateImage={handleGenerateImage}
               disabled={isLoading}
             />
           </div>
