@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback, FormEvent, KeyboardEvent } from 'react';
+import React, { useState, useRef, useEffect, useCallback, FormEvent, KeyboardEvent } from 'react';
 import { generateUUID } from '@/utils/uuid';
 import { getInfographicStyles, getContentTypes } from '@/services/api';
 
@@ -24,13 +24,47 @@ interface BeeBotInputProps {
   disabled?: boolean;
 }
 
+// Icons for content types (no emojis)
+const ContentTypeIcons: Record<string, React.ReactNode> = {
+  linkedin_post: (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+    </svg>
+  ),
+  email: (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+    </svg>
+  ),
+  blog_draft: (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+    </svg>
+  ),
+  tweet_thread: (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+    </svg>
+  ),
+  newsletter: (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
+    </svg>
+  ),
+  meeting_summary: (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+    </svg>
+  ),
+};
+
 const DEFAULT_CONTENT_TYPES = [
-  { type: 'linkedin_post', label: 'LinkedIn Post', icon: '💼' },
-  { type: 'email', label: 'Email', icon: '📧' },
-  { type: 'blog_draft', label: 'Blog Post', icon: '📝' },
-  { type: 'tweet_thread', label: 'Tweet Thread', icon: '🐦' },
-  { type: 'newsletter', label: 'Newsletter', icon: '📰' },
-  { type: 'meeting_summary', label: 'Meeting Summary', icon: '📋' },
+  { type: 'linkedin_post', label: 'LinkedIn Post' },
+  { type: 'email', label: 'Email' },
+  { type: 'blog_draft', label: 'Blog Post' },
+  { type: 'tweet_thread', label: 'Tweet Thread' },
+  { type: 'newsletter', label: 'Newsletter' },
+  { type: 'meeting_summary', label: 'Meeting Summary' },
 ];
 
 const TONE_OPTIONS = [
@@ -54,7 +88,7 @@ export default function BeeBotInput({
   const [isGhostwriterMode, setIsGhostwriterMode] = useState(false);
   const [styles, setStyles] = useState<{ style: string; description: string }[]>([]);
   const [style, setStyle] = useState('');
-  const [contentTypes, setContentTypes] = useState<{ type: string; label: string; icon: string }[]>(DEFAULT_CONTENT_TYPES);
+  const [contentTypes, setContentTypes] = useState<{ type: string; label: string }[]>(DEFAULT_CONTENT_TYPES);
   const [contentType, setContentType] = useState('linkedin_post');
   const [ghostwriterDocType, setGhostwriterDocType] = useState<'meeting' | 'email' | 'document' | 'note' | 'all'>('all');
   const [tone, setTone] = useState('');
@@ -86,7 +120,6 @@ export default function BeeBotInput({
           types.map((t) => ({
             type: t.type,
             label: t.type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-            icon: DEFAULT_CONTENT_TYPES.find((d) => d.type === t.type)?.icon ?? '📄',
           }))
         );
         setContentType((prev) => (types.some((t) => t.type === prev) ? prev : types[0].type));
@@ -281,7 +314,13 @@ export default function BeeBotInput({
                     onClick={() => setShowContentTypeDropdown((prev) => !prev)}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#FF8C00] bg-[#FF8C00]/10 hover:bg-[#FF8C00]/20 rounded-lg transition-colors border border-[#FF8C00]/30"
                   >
-                    <span>{contentTypes.find((c) => c.type === contentType)?.icon ?? '✍️'}</span>
+                    <span className="text-gray-600">
+                      {ContentTypeIcons[contentType] ?? (
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                        </svg>
+                      )}
+                    </span>
                     {contentTypes.find((c) => c.type === contentType)?.label ?? 'Type'}
                     <svg className={`w-3 h-3 transition-transform ${showContentTypeDropdown ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -301,7 +340,13 @@ export default function BeeBotInput({
                             contentType === c.type ? 'bg-orange-50 text-[#FF8C00] font-medium' : 'text-gray-700'
                           }`}
                         >
-                          <span>{c.icon}</span>
+                          <span className="text-gray-600">
+                            {ContentTypeIcons[c.type] ?? (
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                              </svg>
+                            )}
+                          </span>
                           <span>{c.label}</span>
                         </button>
                       ))}
@@ -480,11 +525,12 @@ export default function BeeBotInput({
               <button
                 type="button"
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
+                title="Help"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                Deep Research
+                Help
               </button>
             </div>
           </div>
